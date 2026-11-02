@@ -1,0 +1,118 @@
+# ESPectre Arduino library
+
+> This repository is generated from [francescopace/espectre](https://github.com/francescopace/espectre). Report issues and send pull requests to [francescopace/espectre](https://github.com/francescopace/espectre).
+
+The ESPectre Arduino library detects motion from Wi-Fi channel state information (CSI) in an Arduino-ESP32 sketch. Your sketch keeps control of Wi-Fi and of everything else it does.
+
+Arduino support is in development for v3.2.0 and is not yet a supported release.
+
+## Requirements
+
+- Arduino-ESP32 core 3.3 or later.
+- ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, or ESP32-C6.
+- A 2.4 GHz or 5 GHz access point that the board stays connected to.
+
+## Installation
+
+When the Arduino Library Manager lists **ESPectre**, install it from there. With Arduino CLI, run:
+
+```bash
+arduino-cli lib install ESPectre
+```
+
+To try the development version, install the mirror's `develop` branch, which follows each `develop` build:
+
+```bash
+arduino-cli config set library.enable_unsafe_install true
+```
+
+```bash
+arduino-cli lib install --git-url https://github.com/francescopace/espectre-arduino.git#develop
+```
+
+Otherwise, install a ZIP archive. Each stable release tags [espectre-arduino](https://github.com/francescopace/espectre-arduino), where GitHub offers the library as a ZIP archive. CI also builds `espectre-arduino-<version>.zip` as the `arduino-library` workflow artifact. In the Arduino IDE, choose **Sketch > Include Library > Add .ZIP Library**. With Arduino CLI, run:
+
+```bash
+arduino-cli config set library.enable_unsafe_install true
+```
+
+```bash
+arduino-cli lib install --zip-path espectre-arduino-<version>.zip
+```
+
+### ESP-IDF with Arduino as a component
+
+ESP-IDF projects that use Arduino as a component do not need this library. Add the SDK from the ESP Component Registry, include `espectre_sdk.h`, and use `espectre::ESPectre`:
+
+```bash
+idf.py add-dependency "francescopace/espectre"
+```
+
+The component includes the same class and the full SDK, with menuconfig, optional services, and the traffic diagnostics. Register a [log sink](https://espectre.dev/sdk/#logging) to see ESPectre logs. See the [SDK guide](https://espectre.dev/sdk/#arduino-style-sensor) for the details.
+
+## Getting started
+
+Open **File > Examples > ESPectre > MotionDetection**, set your network in `arduino_secrets.h`, and upload it. Open the serial monitor at 115200 baud.
+
+```cpp
+#include <WiFi.h>
+#include <ESPectre.h>
+
+ESPectre sensor;
+
+void setup() {
+  Serial.begin(115200);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin("your-network", "your-password");
+  sensor.onMotion([](bool motion) { Serial.println(motion ? "Motion" : "Idle"); });
+  sensor.begin();
+}
+
+void loop() {
+  sensor.loop();
+  delay(10);
+}
+```
+
+Call `begin()` after `WiFi.begin()`. The connection does not have to be up yet. Call `loop()` from every Arduino loop. Callbacks run inside `begin()`, `loop()`, and `end()`, so keep them short.
+
+The sensor calibrates after each connection. `ready()` is false until then, and `motion()` stays false while sensing is not ready. If motion is detected when sensing stops being ready, `onMotion()` reports idle first.
+
+## API
+
+| Member | Purpose |
+|--------|---------|
+| `config()` | Configuration for the next `begin()`, such as `threshold` or `csi_target_pps` |
+| `begin()` / `end()` | Start or stop sensing. `begin()` returns false when setup fails |
+| `loop()` | Advance sensing and deliver callbacks |
+| `ready()`, `motion()` | Whether results can be trusted, and whether motion is detected |
+| `movement()`, `threshold()` | Latest movement score and the threshold it is compared against |
+| `onMotion()`, `onReady()`, `onFault()` | Callbacks for motion changes, readiness changes, and runtime faults |
+| `runtime()` | The full SDK controller for thresholds, recalibration, and diagnostics |
+
+The configuration starts from the SDK defaults. Settings changed at runtime are not saved, so the values in your sketch always apply after a reboot. Set `config().persist_runtime_overrides` to true to save them.
+
+See the [SDK guide](https://espectre.dev/sdk/) for the full runtime contract.
+
+## Wi-Fi
+
+ESPectre turns Wi-Fi power save off at every connection, because it reduces the CSI rate. Do not call `WiFi.setSleep(true)` while sensing.
+
+ESPectre sends a small stream of ping packets to the gateway to keep CSI flowing. See [traffic destination](https://espectre.dev/sdk/#traffic-destination) to choose another target.
+
+## Logging
+
+ESPectre logs follow the **Core Debug Level** setting, like the core's own messages. They are off by default. To send them elsewhere, register a [log sink](https://espectre.dev/sdk/#logging) before `begin()`.
+
+## Limitations
+
+These apply to the Arduino library, not to the ESP-IDF component.
+
+- The library includes sensing only. MQTT, Direct HTTP, and provisioning are not included.
+- The `traffic.tx_packets_total` and `traffic.rx_packets_total` diagnostics stay at zero.
+- On ESP32, the fixed transmit rate does not apply, because Arduino builds ESP-IDF with A-MPDU enabled.
+- The example uses 70–88% of the default 1.2 MB app partition, the most on ESP32-C5 and ESP32-C6. Choose a larger **Partition Scheme** when your sketch adds other libraries.
+
+## Licensing
+
+ESPectre is available under GPLv3 and a separate commercial license. See `LICENSING.md`.
