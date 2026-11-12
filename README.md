@@ -12,7 +12,7 @@ The ESPectre Arduino library detects motion from Wi-Fi channel state information
 
 ## Installation
 
-When the Arduino Library Manager lists **ESPectre**, install it from there. With Arduino CLI, run:
+Install **ESPectre** from the Arduino Library Manager. With Arduino CLI, run:
 
 ```bash
 arduino-cli lib install ESPectre
