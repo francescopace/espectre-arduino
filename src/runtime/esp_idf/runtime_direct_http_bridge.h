@@ -15,6 +15,7 @@
 
 #include "runtime/direct_http_service.h"
 #include "direct_wifi_snapshot_esp_idf.h"
+#include "standalone_wifi_service.h"
 #include "runtime/frontend_command_engine.h"
 #include "runtime/peer_discovery.h"
 #include "raw_csi_session_controller.h"
@@ -24,6 +25,9 @@
 
 #include <atomic>
 #include <vector>
+
+/** The Direct bridge can read scan results and pin status from the Wi-Fi owner. */
+#define ESPECTRE_DIRECT_HAS_FRONTEND_WIFI_STATUS 1
 
 namespace espectre {
 
@@ -55,7 +59,7 @@ struct RuntimeDirectHttpBridgeConfig {
   FrontendDeviceLabelCallback device_label_setter;
   /** Station snapshot for the `wifi` resource; omitted, read_direct_wifi_snapshot() is used. */
   std::function<DirectWifiSnapshot()> wifi_snapshot_getter;
-  /** Peer discovery for the `devices` resource; not owned. Omitted, it is not advertised. */
+  /** Peer discovery for the `devices` resource; not owned, must outlive the bridge. Omitted, it is not advertised. */
   IPeerDiscoveryService *peer_discovery{nullptr};
   /** Rate diagnostics, normally `RuntimeFrontendController::diagnostics_sample()`. */
   std::function<const RuntimeDiagnosticsSample *()> diagnostics_sample_getter;
@@ -73,6 +77,10 @@ struct RuntimeDirectHttpBridgeConfig {
   std::function<bool(std::string *message)> wifi_bssid_pin_preflight;
   /** Latest complete frontend loop duration in milliseconds; omitted callbacks yield null. */
   std::function<float()> loop_time_ms_getter{};
+  /** Called on the owner loop after a Direct access point scan starts successfully. */
+  std::function<void()> wifi_scan_started{};
+  /** Read frontend-owned scan results. Return true while the requested scan is in progress. */
+  std::function<bool(const std::string &ssid, std::vector<StandaloneWifiAccessPoint> &results)> wifi_scan_results_getter{};
 };
 
 /**
@@ -122,11 +130,22 @@ bool apply_wifi_bssid_pin(const std::string &bssid,
  * Frontends retain ownership of their runtime and transport. The optional
  * callback lets an adapter republish frontend-native entities after a Direct
  * mutation, for example ESPHome number and select entities.
+ *
+ * @par Lifetime
+ * The destructor calls shutdown(), so the service, the runtime, and any peer
+ * discovery service must still exist when the bridge is destroyed. In an
+ * owning class, declare the bridge after them.
  */
 class RuntimeDirectHttpBridge {
  public:
   /** Called after a Direct request changed configuration. */
   using ConfigChangedCallback = std::function<void()>;
+
+  RuntimeDirectHttpBridge() = default;
+  /** Shut down so the service keeps no callback into a destroyed bridge. */
+  ~RuntimeDirectHttpBridge();
+  RuntimeDirectHttpBridge(const RuntimeDirectHttpBridge &) = delete;
+  RuntimeDirectHttpBridge &operator=(const RuntimeDirectHttpBridge &) = delete;
 
   /**
    * Start `service` for the first-party portals and route its requests to
@@ -217,7 +236,6 @@ class RuntimeDirectHttpBridge {
   RawCsiSessionController raw_session_controller_{};
   std::atomic<size_t> event_client_count_{0U};
   bool deferred_requests_enabled_{false};
-  bool wifi_response_pending_{false};
   // Guest mode: the runtime belongs to another component.
   bool guest_{false};
   // Applies sensing changes: the owner's callbacks for a guest, the runtime setters otherwise.
